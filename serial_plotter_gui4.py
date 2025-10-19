@@ -125,8 +125,8 @@ class SerialPlotter:
                 y_data = df.iloc[:, y_col].values
                 
                 self.ax.scatter(x_data, y_data, alpha=0.7, s=30)
-                self.ax.set_xlabel(f'Column {x_col + 1} (x-axis)')
-                self.ax.set_ylabel(f'Column {y_col + 1} (y-axis)')
+                self.ax.set_xlabel(self.headings[x_col]) 
+                self.ax.set_ylabel(self.headings[y_col])
         
         self.ax.grid(True, alpha=0.3)
         self.fig.canvas.draw()
@@ -204,13 +204,17 @@ def create_layout():
         [sg.Button('Save data', key='-SAVE-', size=(10, 1))],
         [sg.Text('Status:', size=(12, 1))],
         [sg.Text('Disconnected', key='-STATUS-', size=(30, 2), text_color='red')],
+        [sg.Text('Label:', key='-LABEL-', size=(20, 2), text_color='red',font=('Arial', 20))],
         [sg.Text('Value', key='-DATAVALUE-', size=(10, 1), text_color='red',background_color='white',justification='center',font=('Arial', 25))],
+#        [sg.Text('Coordinates:', size=(15, 1))],
+#        [sg.Text('x= , y=',key='-XY-', size=(20, 1))],
 
     ]
     
     # Plot area
     plot_frame = [
-        [sg.Canvas(key='-CANVAS-', size=(600, 400), background_color='lightgreen')]
+        [sg.Canvas(key='-CANVAS-', size=(600, 400), background_color='lightgreen')],
+        [sg.Text('Coordinates:', size=(15, 1),font=('Arial', 25)),sg.Text('x= , y=',key='-XY-', size=(20, 1),font=('Arial', 25))],        
     ]
     
     # Main layout
@@ -222,14 +226,29 @@ def create_layout():
     
     return layout, plotter
 
+xp,yp = 0,0
+st = 0
+def on_click(evt):
+    global xp,yp,st
+    if evt.button == 1:
+        xp = round(evt.xdata,4)
+        yp = round(evt.ydata,4)
+        st = 1
+        
+
+
 def main():
+    global xp,yp,st
     sg.theme('DefaultNoMoreNagging')
     
     layout, plotter = create_layout()
     window = sg.Window('Serial Data Plotter', layout, finalize=True, resizable=True)
-    
+
+    pltfig = plotter.fig
     # Draw initial plot
-    fig_agg = draw_figure(window['-CANVAS-'].TKCanvas, plotter.fig)
+    fig_agg = draw_figure(window['-CANVAS-'].TKCanvas, pltfig)
+
+    pltfig.canvas.mpl_connect('button_press_event', on_click)
     
     receiving = False
     headings = []
@@ -347,7 +366,10 @@ def main():
                                             text_color='green' if success else 'red')
             else:
                 window['-STATUS-'].update('No data to save', text_color='orange')
-        
+
+        if st == 1:
+            window['-XY-'].update(f'x = {xp}, y = {yp}')
+            st = 0
         # Check live plot status
         live_plot_enabled = values['-LIVE_PLOT-']
         
@@ -385,6 +407,8 @@ def main():
                 if live_plot_enabled:
                     status_text += ' [Live Plot ON]'
                 window['-STATUS-'].update(status_text, text_color='blue')
+                window['-LABEL-'].update(headings[y_col], text_color='red')
+                window['-DATAVALUE-'].update(value=data[y_col])
     
     # Cleanup
     plotter.disconnect_serial()
