@@ -114,12 +114,17 @@ class SerialPlotter:
         """Stop receiving data"""
         self.is_receiving = False
     
-    def update_plot(self, x_col, y_col):
+    def update_plot(self, x_col, y_col, x_min, x_max, y_min, y_max):
         """Update the plot with current data"""
         self.ax.clear()
-        
+        if x_min is not None and x_max is not None:
+            self.ax.set_xlim(x_min, x_max)
+        if y_min is not None and y_max is not None:
+            self.ax.set_ylim(y_min, y_max)
+
         if len(self.received_data) > 0:
             df = pd.DataFrame(self.received_data)
+            
             if x_col < len(df.columns) and y_col < len(df.columns):
                 x_data = df.iloc[:, x_col].values
                 y_data = df.iloc[:, y_col].values
@@ -127,10 +132,11 @@ class SerialPlotter:
                 self.ax.scatter(x_data, y_data, alpha=0.7, s=30)
                 self.ax.set_xlabel(self.headings[x_col]) 
                 self.ax.set_ylabel(self.headings[y_col])
+
         
         self.ax.grid(True, alpha=0.3)
         self.fig.canvas.draw()
-    
+
     def clear_data(self):
         """Clear all collected data"""
         self.received_data.clear()
@@ -194,20 +200,20 @@ def create_layout():
         [sg.Text('Port:', size=(12, 1)), sg.Combo(ports, default_value='COM3', key='-PORT-', size=(10, 1))],
         [sg.Text('Baudrate:', size=(12, 1)), sg.Input('9600', key='-BAUDRATE-', size=(12, 1))],
         [sg.Text('Number of Column:', size=(12, 1)), sg.Input('3', key='-NUM_COLS-', size=(12, 1), disabled=True)],
-        [sg.Text('x-axis:', size=(12, 1)), sg.Combo(['Column 1', 'Column 2', 'Column 3'], default_value='Column 1', key='-X_AXIS-', size=(15, 1))],
-        [sg.Text('y-axis:', size=(12, 1)), sg.Combo(['Column 1', 'Column 2', 'Column 3'], default_value='Column 2', key='-Y_AXIS-', size=(15, 1))],
-        [sg.Checkbox('Live Plot', key='-LIVE_PLOT-', default=False)],
-        [sg.Button('Connect', key='-CONNECT-', size=(10, 1))],
-        [sg.Button('Receive', key='-RECEIVE-', size=(10, 1))],
-        [sg.Button('Plot', key='-PLOT-', size=(10, 1))],
-        [sg.Button('Clear Data', key='-CLEAR-', size=(10, 1))],
-        [sg.Button('Save data', key='-SAVE-', size=(10, 1))],
+        [sg.Text('X-axis:', size=(12, 1)), sg.Combo(['Column 1', 'Column 2', 'Column 3'], default_value='Column 1', key='-X_AXIS-', size=(15, 1))],
+        [sg.Text('Y-axis:', size=(12, 1)), sg.Combo(['Column 1', 'Column 2', 'Column 3'], default_value='Column 2', key='-Y_AXIS-', size=(15, 1))],
+        [sg.Text('x-limits:', size=(12, 1)), sg.Input('', key='-X_MIN-', size=(6, 1), tooltip='Min'), 
+         sg.Text('to'), sg.Input('', key='-X_MAX-', size=(6, 1), tooltip='Max')],
+        [sg.Text('y-limits:', size=(12, 1)), sg.Input('', key='-Y_MIN-', size=(6, 1), tooltip='Min'), 
+         sg.Text('to'), sg.Input('', key='-Y_MAX-', size=(6, 1), tooltip='Max')],
+        [sg.Checkbox('Live Plot', key='-LIVE_PLOT-', default=True),
+         sg.Checkbox('Auto-scale', key='-AUTO_SCALE-', default=True)],
+        [sg.Button('Connect', key='-CONNECT-', size=(10, 1)), sg.Button('Receive', key='-RECEIVE-', size=(10, 1))],
+        [sg.Button('Plot', key='-PLOT-', size=(10, 1)), sg.Button('Clear Data', key='-CLEAR-', size=(10, 1)),sg.Button('Save data', key='-SAVE-', size=(10, 1))],
         [sg.Text('Status:', size=(12, 1))],
         [sg.Text('Disconnected', key='-STATUS-', size=(30, 2), text_color='red')],
         [sg.Text('Label:', key='-LABEL-', size=(20, 2), text_color='red',font=('Arial', 20))],
         [sg.Text('Value', key='-DATAVALUE-', size=(10, 1), text_color='red',background_color='white',justification='center',font=('Arial', 25))],
-#        [sg.Text('Coordinates:', size=(15, 1))],
-#        [sg.Text('x= , y=',key='-XY-', size=(20, 1))],
 
     ]
     
@@ -231,9 +237,12 @@ st = 0
 def on_click(evt):
     global xp,yp,st
     if evt.button == 1:
-        xp = round(evt.xdata,4)
-        yp = round(evt.ydata,4)
-        st = 1
+        try:
+            xp = round(evt.xdata,4)
+            yp = round(evt.ydata,4)
+            st = 1
+        except: 
+            pass
         
 
 
@@ -344,7 +353,19 @@ def main():
                     x_col = int(x_selection.split()[-1]) - 1 if 'Column' in x_selection else 0
                     y_col = int(y_selection.split()[-1]) - 1 if 'Column' in y_selection else 1
                 
-                plotter.update_plot(x_col, y_col)
+                
+               # Apply axis limits if not auto-scaling
+                x_min, x_max, y_min, y_max = None, None, None, None
+                if not values['-AUTO_SCALE-']:
+                    try:
+                        x_min = float(values['-X_MIN-']) if values['-X_MIN-'] else None
+                        x_max = float(values['-X_MAX-']) if values['-X_MAX-'] else None
+                        y_min = float(values['-Y_MIN-']) if values['-Y_MIN-'] else None
+                        y_max = float(values['-Y_MAX-']) if values['-Y_MAX-'] else None
+                        
+                    except ValueError:
+                        window['-STATUS-'].update('Invalid axis limit values', text_color='orange')
+                plotter.update_plot(x_col, y_col, x_min, x_max, y_min, y_max)
                 fig_agg.draw()
             except Exception as e:
                 window['-STATUS-'].update(f'Plot error: {str(e)}', text_color='red')
@@ -353,7 +374,8 @@ def main():
             success, message = plotter.clear_data()
             fig_agg.draw()
             window['-STATUS-'].update(message, text_color='green' if success else 'red')
-        
+
+ 
         elif event == '-SAVE-':
             if plotter.received_data:
                 filename = sg.popup_get_file('Save data as...', save_as=True, 
@@ -396,8 +418,18 @@ def main():
                     else:
                         x_col = int(x_selection.split()[-1]) - 1 if 'Column' in x_selection else 0
                         y_col = int(y_selection.split()[-1]) - 1 if 'Column' in y_selection else 1
+                   # Get axis limits if not auto-scaling
+                    x_min, x_max, y_min, y_max = None, None, None, None
+                    if not values['-AUTO_SCALE-']:
+                        try:
+                            x_min = float(values['-X_MIN-']) if values['-X_MIN-'] else None
+                            x_max = float(values['-X_MAX-']) if values['-X_MAX-'] else None
+                            y_min = float(values['-Y_MIN-']) if values['-Y_MIN-'] else None
+                            y_max = float(values['-Y_MAX-']) if values['-Y_MAX-'] else None
+                        except ValueError:
+                            pass  # Use auto-scale if invalid values
                     
-                    plotter.update_plot(x_col, y_col)
+                    plotter.update_plot(x_col, y_col, x_min, x_max, y_min, y_max)
                 except Exception as e:
                     pass  # Silently handle live plot errors to avoid spam
             
