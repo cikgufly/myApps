@@ -114,9 +114,13 @@ class SerialPlotter:
         """Stop receiving data"""
         self.is_receiving = False
     
-    def update_plot(self, x_col, y_col, x_min, x_max, y_min, y_max):
+    def update_plot(self, x_col, y_col, xylim, lineplot):
         """Update the plot with current data"""
         self.ax.clear()
+        x_min = xylim[0]
+        x_max = xylim[1]
+        y_min = xylim[2]
+        y_max = xylim[3]
         if x_min is not None and x_max is not None:
             self.ax.set_xlim(x_min, x_max)
         if y_min is not None and y_max is not None:
@@ -128,8 +132,10 @@ class SerialPlotter:
             if x_col < len(df.columns) and y_col < len(df.columns):
                 x_data = df.iloc[:, x_col].values
                 y_data = df.iloc[:, y_col].values
-                
-                self.ax.scatter(x_data, y_data, alpha=0.7, s=30)
+                if lineplot:
+                    self.ax.plot(x_data, y_data, linewidth=3)
+                else:
+                    self.ax.scatter(x_data, y_data, alpha=0.7, s=30)
                 self.ax.set_xlabel(self.headings[x_col]) 
                 self.ax.set_ylabel(self.headings[y_col])
 
@@ -182,6 +188,27 @@ class SerialPlotter:
         except Exception as e:
             return False, f"Error saving data: {str(e)}"
 
+    def regression(self, x_col, y_col, xrange):
+
+        if len(self.received_data) > 0:
+            df = pd.DataFrame(self.received_data)
+            if x_col < len(df.columns) and y_col < len(df.columns):
+                mx = df.iloc[:, x_col].mean()
+                my = df.iloc[:, y_col].mean()
+                x_data = df.iloc[:, x_col].values
+                y_data = df.iloc[:, y_col].values
+
+                A = (x_data-mx)*(y_data-my)
+                B = (x_data-mx)**2
+                slope = round(A.sum()/B.sum(),2)
+                c = round(my - slope*mx,2)
+
+                self.ax.plot(x_data, slope*x_data + c, linewidth=3, linestyle = '--', label = f' {slope} x + {c}',color = 'red' )
+                self.ax.legend()
+
+        self.fig.canvas.draw()
+        return slope, c
+
 def draw_figure(canvas, figure):
     """Helper function to draw matplotlib figure on canvas"""
     figure_canvas_agg = FigureCanvasTkAgg(figure, canvas)
@@ -207,9 +234,11 @@ def create_layout():
         [sg.Text('y-limits:', size=(12, 1)), sg.Input('', key='-Y_MIN-', size=(6, 1), tooltip='Min'), 
          sg.Text('to'), sg.Input('', key='-Y_MAX-', size=(6, 1), tooltip='Max')],
         [sg.Checkbox('Live Plot', key='-LIVE_PLOT-', default=True),
-         sg.Checkbox('Auto-scale', key='-AUTO_SCALE-', default=True)],
+         sg.Checkbox('Auto-scale', key='-AUTO_SCALE-', default=True),
+         sg.Checkbox('Line Plot', key='-LINE_PLOT-', default=False)],
         [sg.Button('Connect', key='-CONNECT-', size=(10, 1)), sg.Button('Receive', key='-RECEIVE-', size=(10, 1))],
         [sg.Button('Plot', key='-PLOT-', size=(10, 1)), sg.Button('Clear Data', key='-CLEAR-', size=(10, 1)),sg.Button('Save data', key='-SAVE-', size=(10, 1))],
+        [sg.Button('Regression', key='-REGRESSION-', size=(10, 1))],
         [sg.Text('Status:', size=(12, 1))],
         [sg.Text('Disconnected', key='-STATUS-', size=(30, 2), text_color='red')],
         [sg.Text('Label:', key='-LABEL-', size=(20, 2), text_color='red',font=('Arial', 20))],
@@ -355,17 +384,17 @@ def main():
                 
                 
                # Apply axis limits if not auto-scaling
-                x_min, x_max, y_min, y_max = None, None, None, None
+                xylim = [None, None, None, None]
                 if not values['-AUTO_SCALE-']:
                     try:
-                        x_min = float(values['-X_MIN-']) if values['-X_MIN-'] else None
-                        x_max = float(values['-X_MAX-']) if values['-X_MAX-'] else None
-                        y_min = float(values['-Y_MIN-']) if values['-Y_MIN-'] else None
-                        y_max = float(values['-Y_MAX-']) if values['-Y_MAX-'] else None
+                        xylim[0] = float(values['-X_MIN-']) if values['-X_MIN-'] else None
+                        xylim[1] = float(values['-X_MAX-']) if values['-X_MAX-'] else None
+                        xylim[2] = float(values['-Y_MIN-']) if values['-Y_MIN-'] else None
+                        xylim[3] = float(values['-Y_MAX-']) if values['-Y_MAX-'] else None
                         
                     except ValueError:
                         window['-STATUS-'].update('Invalid axis limit values', text_color='orange')
-                plotter.update_plot(x_col, y_col, x_min, x_max, y_min, y_max)
+                plotter.update_plot(x_col, y_col, xylim,values['-LINE_PLOT-'])
                 fig_agg.draw()
             except Exception as e:
                 window['-STATUS-'].update(f'Plot error: {str(e)}', text_color='red')
@@ -388,6 +417,11 @@ def main():
                                             text_color='green' if success else 'red')
             else:
                 window['-STATUS-'].update('No data to save', text_color='orange')
+
+        elif event == '-REGRESSION-':
+
+             slope,intercept = plotter.regression(x_col, y_col, [xp,yp])
+
 
         if st == 1:
             window['-XY-'].update(f'x = {xp}, y = {yp}')
@@ -419,17 +453,17 @@ def main():
                         x_col = int(x_selection.split()[-1]) - 1 if 'Column' in x_selection else 0
                         y_col = int(y_selection.split()[-1]) - 1 if 'Column' in y_selection else 1
                    # Get axis limits if not auto-scaling
-                    x_min, x_max, y_min, y_max = None, None, None, None
+                    xylim = [None, None, None, None]
                     if not values['-AUTO_SCALE-']:
                         try:
-                            x_min = float(values['-X_MIN-']) if values['-X_MIN-'] else None
-                            x_max = float(values['-X_MAX-']) if values['-X_MAX-'] else None
-                            y_min = float(values['-Y_MIN-']) if values['-Y_MIN-'] else None
-                            y_max = float(values['-Y_MAX-']) if values['-Y_MAX-'] else None
+                            xylim[0] = float(values['-X_MIN-']) if values['-X_MIN-'] else None
+                            xylim[1] = float(values['-X_MAX-']) if values['-X_MAX-'] else None
+                            xylim[2] = float(values['-Y_MIN-']) if values['-Y_MIN-'] else None
+                            xylim[3] = float(values['-Y_MAX-']) if values['-Y_MAX-'] else None
                         except ValueError:
                             pass  # Use auto-scale if invalid values
                     
-                    plotter.update_plot(x_col, y_col, x_min, x_max, y_min, y_max)
+                    plotter.update_plot(x_col, y_col, xylim,values['-LINE_PLOT-'])
                 except Exception as e:
                     pass  # Silently handle live plot errors to avoid spam
             
